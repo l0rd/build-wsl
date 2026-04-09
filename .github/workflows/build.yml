@@ -31,11 +31,9 @@ jobs:
       - name: Clone WSL repository at specified commit
         shell: pwsh
         run: |
-          git init wsl-src
+          git clone https://github.com/microsoft/WSL.git wsl-src
           cd wsl-src
-          git remote add origin https://github.com/microsoft/WSL.git
-          git fetch --depth 1 origin ${{ inputs.wsl_commit }}
-          git checkout FETCH_HEAD
+          git checkout ${{ inputs.wsl_commit }}
           Write-Host "Building WSL at commit: $(git rev-parse HEAD)"
           Write-Host "Commit message: $(git log -1 --pretty=%s)"
 
