@@ -1,23 +1,20 @@
-# build-wsl
+# build-wsl: WSLC on Podman
 
-Build WSL from source using GitHub Actions. Fork this repo to build any commit from [microsoft/WSL](https://github.com/microsoft/WSL).
+GitHub Actions that build and test WSLC (WSL containers) with Podman as the container backend, from
+forks of WSL, WSLg and Podman. Forked from [chemwolf6922/build-wsl](https://github.com/chemwolf6922/build-wsl).
 
 ## Usage
 
-1. **Fork** this repository
-2. Go to **Actions** → **Build WSL MSI**
-3. Click **Run workflow**
-4. Enter the WSL commit SHA you want to build (from [microsoft/WSL commits](https://github.com/microsoft/WSL/commits/master))
-5. Wait for the build to complete (~20-45 minutes)
-6. Download the MSI from the workflow run's **Artifacts** section
+1. Go to **Actions** → **WSLC on Podman (x64)** → **Run workflow**.
+2. Pick the repositories and refs (defaults: the `wslc-podman-test` branches of `l0rd/WSL`, `l0rd/wslg`
+   and `l0rd/podman`) and the build type (default `Release`).
+3. Download the artifacts from the run:
+   - `system-vhd-x64`: the WSLg system VHD built with Podman
+   - `wslc-tests-x64`: a WSL x64 `installer.msix` with that VHD inside, `wsltests.dll`, TAEF, the
+     test distro and data, and `run-wslc-tests.ps1`
+   - `wsl-symbols-x64`: PDBs
 
-## WSLC on Podman (x64)
+With `run_tests` enabled, the workflow also runs the WSLC tests on a self-hosted x64 runner with
+Hyper-V. GitHub-hosted runners cannot boot the WSLC VM.
 
-**Actions** → **WSLC on Podman (x64)** builds the WSLC-on-Podman test bundle from forks of WSL,
-WSLg and Podman:
-- a system VHD built with Podman
-- a WSL x64 package with that VHD inside it
-- `wsltests.dll` and TAEF
-
-With `run_tests` enabled, it also runs the WSLC tests on a self-hosted runner.
-See [docs/wslc-podman-ci.md](docs/wslc-podman-ci.md).
+See [docs/wslc-podman-ci.md](docs/wslc-podman-ci.md) for how the jobs work and how to set up the runner.
