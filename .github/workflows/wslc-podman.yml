@@ -179,7 +179,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           docker system prune -af >/dev/null
           sudo systemctl stop docker docker.socket
-          sudo mkdir -p /mnt/docker /etc/docker
+          sudo mkdir -p /mnt/docker /mnt/work /etc/docker
+          sudo chown "$(id -u):$(id -g)" /mnt/work
           if [ -s /etc/docker/daemon.json ]; then cfg=$(cat /etc/docker/daemon.json); else cfg='{}'; fi
           jq '. + {"data-root": "/mnt/docker"}' <<<"$cfg" | sudo tee /etc/docker/daemon.json
           sudo systemctl start docker
@@ -248,10 +249,10 @@ jobs:
           set -euo pipefail
           mkdir -p system-vhd
           cid=$(docker create system-distro-x64)
-          docker export "$cid" > /mnt/system_x64.tar
+          docker export "$cid" > /mnt/work/system_x64.tar
           docker cp "$cid:/etc/versions.txt" system-vhd/versions.txt
           docker rm "$cid"
-          ls -lh /mnt/system_x64.tar
+          ls -lh /mnt/work/system_x64.tar
           echo "::group::versions.txt"; cat system-vhd/versions.txt; echo "::endgroup::"
 
       - name: Set up Go (for tar2ext4)
@@ -266,8 +267,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go run "github.com/Microsoft/hcsshim/cmd/tar2ext4@${TAR2EXT4_VERSION}" -vhd -i /mnt/system_x64.tar -o system-vhd/system.vhd
-          rm -f /mnt/system_x64.tar
+          go run "github.com/Microsoft/hcsshim/cmd/tar2ext4@${TAR2EXT4_VERSION}" -vhd -i /mnt/work/system_x64.tar -o system-vhd/system.vhd
+          rm -f /mnt/work/system_x64.tar
           (cd system-vhd && sha256sum system.vhd | tee system.vhd.sha256)
           ls -lh system-vhd
 
