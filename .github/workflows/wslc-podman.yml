@@ -1,7 +1,7 @@
 name: WSLC on Podman (x64)
 
 # Builds the WSLC-on-Podman test artifacts from forks and, optionally, runs the
-# WSLC TAEF suite on a self-hosted x64 runner. See docs/wslc-podman-ci.md.
+# WSLC TAEF suite on a self-hosted x64 runner. See README.md.
 #
 # Only workflow_dispatch: never add push/pull_request triggers, because the
 # test job runs on a self-hosted runner.
