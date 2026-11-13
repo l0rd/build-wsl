@@ -36,8 +36,8 @@ on:
       build_type:
         description: "WSL build type"
         type: choice
-        options: [Debug, Release]
-        default: Debug
+        options: [Release, Debug]
+        default: Release
       rebuild_vhd:
         description: "Rebuild the system VHD even if a cached one matches"
         type: boolean

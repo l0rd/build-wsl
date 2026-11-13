@@ -18,7 +18,7 @@ resolve ──► system-vhd ──► build-wsl ──► test-wslc (optional, 
 |---|---|---|---|
 | `resolve` | `ubuntu-24.04` | resolves every input ref (and the WSLg vendor `working` branches) to a commit, so all jobs build the same code | — |
 | `system-vhd` | `ubuntu-24.04` | builds the WSLg system distro with Podman from source, exports it and converts it with `tar2ext4 -vhd`; skipped on a cache hit | `system-vhd-x64` |
-| `build-wsl` | `windows-2022` | builds WSL x64 (Debug by default) with the Podman `system.vhd` inside the package | `wslc-tests-x64`, `wsl-symbols-x64` |
+| `build-wsl` | `windows-2022` | builds WSL x64 (Release by default) with the Podman `system.vhd` inside the package | `wslc-tests-x64`, `wsl-symbols-x64` |
 | `test-wslc` | `[self-hosted, windows, x64, wslc]` | installs the package and runs `te.exe wsltests.dll /p:Version=2 /select:"@TestCategory='WSLC'"` | `wslc-test-logs-x64` |
 
 ### Inputs
@@ -28,7 +28,7 @@ resolve ──► system-vhd ──► build-wsl ──► test-wslc (optional, 
 | `wsl_repo` / `wsl_ref` | `l0rd/WSL` / `wslc-podman-test` | branch, tag or full SHA |
 | `wslg_repo` / `wslg_ref` | `l0rd/wslg` / `wslc-podman-test` | the Dockerfile on this branch is what gets built |
 | `podman_repo` / `podman_ref` | `l0rd/podman` / `wslc-podman-test` | branch or tag only: passed as `PODMAN_REPO`/`PODMAN_VERSION`, and the resolved commit is passed as `PODMAN_COMMIT`, so the build fails if the branch moved mid-run |
-| `build_type` | `Debug` | `Debug` or `Release` |
+| `build_type` | `Release` | `Release` matches upstream CI; `Debug` turns on assertions, debug-only checks and `WSL_LOG_DEBUG` events, and makes unknown exceptions fail fast |
 | `rebuild_vhd` | `false` | ignore the VHD cache |
 | `run_tests` | `false` | needs the self-hosted runner described below |
 | `test_filter` | `@TestCategory='WSLC'` | TAEF `/select:` |
@@ -76,7 +76,8 @@ package built that way reads `C:\wsldev\system.vhd`, `kernel`, `artifacts.vhd` a
 machine, so every test host would need that folder rebuilt by hand. The approach above yields a
 self-contained `installer.msix`, which is also what upstream CI installs.
 
-Debug builds link the static debug CRT (`/MTd`), so test machines need no Visual Studio.
+Both build types link the C runtime statically (`/MT` for Release, `/MTd` for Debug), so test machines
+need no Visual Studio or extra runtime libraries.
 
 ### Tests (`test-wslc`)
 
@@ -133,8 +134,9 @@ Requirements:
 ## Differences from upstream CI
 
 Upstream CloudTest runs Release builds of signed bundles on fixed images and records ETW traces. This
-workflow defaults to Debug, installs an unsigned `installer.msix`, and runs on whatever machine hosts the
-runner. To compare directly with upstream, run with `build_type: Release`.
+workflow also builds Release by default, but installs an unsigned `installer.msix`, records no ETW traces,
+and runs on whatever machine hosts the runner. To chase a crash or an assertion, run with
+`build_type: Debug`.
 
 The vendor `working` branches and the fork branches move over time. `build-info.json` and the `resolve`
 job summary record exactly which commits a run built.
