@@ -14,15 +14,16 @@ vendor=${1:?usage: fetch-wslg-vendor.sh <vendor-dir>}
 
 mkdir -p "$vendor"
 
-# fetch_commit <url> <sha> <dest>: shallow checkout of one commit.
+# fetch_commit <url> <sha> <dest>: checkout of one commit, with full history and tags.
+# Not shallow: the vendor builds derive their version from `git describe`
+# (pulseaudio's meson.build fails with "Index 1 out of bounds" without tags).
+# Blobless, so only the checked-out files are downloaded.
 fetch_commit() {
     local url=$1 sha=$2 dest=$3
     rm -rf "$dest"
-    git init -q "$dest"
-    git -C "$dest" remote add origin "$url"
-    git -C "$dest" fetch -q --depth 1 origin "$sha"
-    git -C "$dest" checkout -q --detach FETCH_HEAD
-    echo "$dest: $(git -C "$dest" rev-parse HEAD)"
+    git clone -q --filter=blob:none --no-checkout "$url" "$dest"
+    git -C "$dest" checkout -q --detach "$sha"
+    echo "$dest: $(git -C "$dest" rev-parse HEAD) ($(git -C "$dest" describe --tags 2>/dev/null || echo 'no tag'))"
 }
 
 fetch_commit https://github.com/microsoft/FreeRDP-mirror.git "$FREERDP_SHA" "$vendor/FreeRDP"
