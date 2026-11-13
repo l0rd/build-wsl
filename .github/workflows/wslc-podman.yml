@@ -1,10 +1,7 @@
 name: WSLC on Podman (x64)
 
-# Builds the WSLC-on-Podman test artifacts from forks and, optionally, runs the
-# WSLC TAEF suite on a self-hosted x64 runner. See README.md.
-#
-# Only workflow_dispatch: never add push/pull_request triggers, because the
-# test job runs on a self-hosted runner.
+# Builds a WSL installer (wsl.msi) whose system VHD runs Podman as the WSLC
+# backend, from forks of WSL, WSLg and Podman. See README.md.
 
 on:
   workflow_dispatch:
@@ -42,18 +39,6 @@ on:
         description: "Rebuild the system VHD even if a cached one matches"
         type: boolean
         default: false
-      run_tests:
-        description: "Run the WSLC tests on the self-hosted runner [self-hosted, windows, x64, wslc]"
-        type: boolean
-        default: false
-      test_filter:
-        description: "TAEF /select: query"
-        type: string
-        default: "@TestCategory='WSLC'"
-      extra_te_args:
-        description: "Extra TE.exe arguments, space separated (e.g. /name:*Network*)"
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -284,7 +269,7 @@ jobs:
         with:
           name: system-vhd-x64
           path: system-vhd/
-          retention-days: 14
+          retention-days: 1 # only passed to build-wsl; the VHD is also cached
           if-no-files-found: error
 
   build-wsl:
@@ -296,11 +281,6 @@ jobs:
     env:
       BUILD_TYPE: ${{ inputs.build_type }}
     steps:
-      - name: Check out this repository
-        uses: actions/checkout@v4
-        with:
-          path: build-wsl
-
       - name: Check out WSL
         uses: actions/checkout@v4
         with:
@@ -331,102 +311,55 @@ jobs:
           Copy-Item ..\system-vhd\system.vhd $target -Force
           Get-FileHash $target -Algorithm SHA256 | Format-List
 
-      - name: Build
+      - name: Build the MSI
         shell: pwsh
         working-directory: wsl-src
-        run: cmake --build . --config $env:BUILD_TYPE -- -m
+        run: cmake --build . --config $env:BUILD_TYPE --target msipackage -- -m
 
-      - name: Assemble test bundle and symbols
+      - name: Check that the MSI contains the Podman system VHD
+        shell: pwsh
+        run: |
+          $msi = "wsl-src/bin/x64/$env:BUILD_TYPE/wsl.msi"
+          $extract = Join-Path $env:RUNNER_TEMP "wsl-msi"
+          $proc = Start-Process msiexec.exe -ArgumentList @("/a", "`"$((Resolve-Path $msi).Path)`"", "/qn", "TARGETDIR=`"$extract`"") -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) { throw "Extracting $msi failed: $($proc.ExitCode)" }
+          $packaged = @(Get-ChildItem $extract -Recurse -Filter system.vhd)
+          if ($packaged.Count -ne 1) { throw "Expected one system.vhd in $msi, found $($packaged.Count)" }
+          $expected = (Get-FileHash system-vhd/system.vhd -Algorithm SHA256).Hash
+          $actual = (Get-FileHash $packaged[0].FullName -Algorithm SHA256).Hash
+          if ($expected -ne $actual) { throw "system.vhd in wsl.msi ($actual) is not the Podman system VHD ($expected)" }
+          Write-Host "wsl.msi contains the Podman system VHD ($expected)"
+
+      - name: Collect the installer
         shell: pwsh
         env:
-          BUILD_INFO: |
-            {
-              "wsl_repo": "${{ inputs.wsl_repo }}", "wsl_ref": "${{ inputs.wsl_ref }}", "wsl_sha": "${{ needs.resolve.outputs.wsl_sha }}",
-              "wslg_repo": "${{ inputs.wslg_repo }}", "wslg_ref": "${{ inputs.wslg_ref }}", "wslg_sha": "${{ needs.resolve.outputs.wslg_sha }}",
-              "podman_repo": "${{ inputs.podman_repo }}", "podman_ref": "${{ inputs.podman_ref }}", "podman_sha": "${{ needs.resolve.outputs.podman_sha }}",
-              "freerdp_sha": "${{ needs.resolve.outputs.freerdp_sha }}", "weston_sha": "${{ needs.resolve.outputs.weston_sha }}",
-              "pulseaudio_sha": "${{ needs.resolve.outputs.pulseaudio_sha }}",
-              "build_type": "${{ inputs.build_type }}",
-              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
-        run: >-
-          ./build-wsl/scripts/assemble-test-bundle.ps1
-          -SourceDir wsl-src -BuildType $env:BUILD_TYPE
-          -ExpectedSystemVhd system-vhd/system.vhd -VersionsFile system-vhd/versions.txt
-          -RunScript build-wsl/scripts/run-wslc-tests.ps1
-          -BuildInfo $env:BUILD_INFO
-          -OutDir out/wslc-tests -SymbolsDir out/symbols
+          WSL_REPO: ${{ inputs.wsl_repo }}
+          WSL_REF: ${{ inputs.wsl_ref }}
+          WSL_SHA: ${{ needs.resolve.outputs.wsl_sha }}
+          WSLG_REPO: ${{ inputs.wslg_repo }}
+          WSLG_REF: ${{ inputs.wslg_ref }}
+          WSLG_SHA: ${{ needs.resolve.outputs.wslg_sha }}
+          PODMAN_REPO: ${{ inputs.podman_repo }}
+          PODMAN_REF: ${{ inputs.podman_ref }}
+          PODMAN_SHA: ${{ needs.resolve.outputs.podman_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item "wsl-src/bin/x64/$env:BUILD_TYPE/wsl.msi" out/
+          Copy-Item system-vhd/versions.txt out/system-distro-versions.txt
+          [ordered]@{
+            wsl = @{ repo = $env:WSL_REPO; ref = $env:WSL_REF; sha = $env:WSL_SHA }
+            wslg = @{ repo = $env:WSLG_REPO; ref = $env:WSLG_REF; sha = $env:WSLG_SHA }
+            podman = @{ repo = $env:PODMAN_REPO; ref = $env:PODMAN_REF; sha = $env:PODMAN_SHA }
+            build_type = $env:BUILD_TYPE
+            run = $env:RUN_URL
+          } | ConvertTo-Json | Set-Content -Encoding utf8 out/build-info.json
+          Get-ChildItem out | Format-Table Name, Length -AutoSize
 
-      - name: Upload test bundle
+      - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:
-          name: wslc-tests-x64
-          path: out/wslc-tests/
-          retention-days: 14
+          name: wsl-msi-x64
+          path: out/
+          retention-days: 30
           if-no-files-found: error
-
-      - name: Upload symbols
-        uses: actions/upload-artifact@v4
-        with:
-          name: wsl-symbols-x64
-          path: out/symbols/
-          retention-days: 7
-          if-no-files-found: warn
-
-  test-wslc:
-    name: WSLC tests (self-hosted x64)
-    runs-on: [self-hosted, windows, x64, wslc]
-    needs: build-wsl
-    if: inputs.run_tests && github.actor == github.repository_owner
-    timeout-minutes: 300
-    # The tests reinstall WSL and import/unregister distros: one run per machine at a time.
-    concurrency:
-      group: wslc-self-hosted-runner
-      cancel-in-progress: false
-    steps:
-      - name: Prepare directories
-        shell: pwsh
-        run: |
-          $bundle = Join-Path $env:RUNNER_TEMP 'wslc-tests'
-          $logs = Join-Path $env:RUNNER_TEMP 'wslc-logs'
-          Remove-Item -Recurse -Force $bundle, $logs -ErrorAction Ignore
-          New-Item -ItemType Directory $bundle, $logs | Out-Null
-          "BUNDLE_DIR=$bundle" >> $env:GITHUB_ENV
-          "LOG_DIR=$logs" >> $env:GITHUB_ENV
-
-      - name: Download test bundle
-        uses: actions/download-artifact@v4
-        with:
-          name: wslc-tests-x64
-          path: ${{ runner.temp }}/wslc-tests
-
-      - name: Run WSLC tests
-        shell: pwsh
-        env:
-          TEST_FILTER: ${{ inputs.test_filter }}
-          EXTRA_TE_ARGS: ${{ inputs.extra_te_args }}
-        run: >-
-          & "$env:BUNDLE_DIR\run-wslc-tests.ps1"
-          -BundleDir $env:BUNDLE_DIR -LogDir $env:LOG_DIR
-          -Filter $env:TEST_FILTER -ExtraTeArgs $env:EXTRA_TE_ARGS
-          -SummaryFile $env:GITHUB_STEP_SUMMARY
-
-      - name: Collect state
-        if: always()
-        shell: pwsh
-        run: |
-          wsl.exe --version *> "$env:LOG_DIR\wsl-version.txt"
-          wsl.exe --list --verbose *> "$env:LOG_DIR\wsl-list.txt"
-          wsl.exe --shutdown
-          Get-ComputerInfo -Property OsName, OsVersion, OsBuildNumber, CsProcessors, HyperVisorPresent |
-            Out-File "$env:LOG_DIR\host.txt"
-          exit 0
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wslc-test-logs-x64
-          path: ${{ runner.temp }}/wslc-logs/
-          retention-days: 14
-          if-no-files-found: warn
